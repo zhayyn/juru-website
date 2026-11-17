@@ -1,0 +1,6 @@
+{
+  "name": "WebAudit & Ranker Pro",
+  "description": "Platform audit performa, keamanan, aksesibilitas, dan kepatuhan website berbasis standar Peradilan Agama & Web Modern dengan Live Cloud Leaderboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

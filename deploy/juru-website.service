@@ -1,0 +1,21 @@
+[Unit]
+Description=Juru Website Technical Audit Pilot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=juru
+Group=juru
+WorkingDirectory=/opt/juru-website
+EnvironmentFile=/etc/juru-website/juru-website.env
+ExecStart=/usr/bin/env node --import tsx server.ts
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/juru-website
+
+[Install]
+WantedBy=multi-user.target

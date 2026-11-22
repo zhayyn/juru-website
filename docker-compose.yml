@@ -1,0 +1,25 @@
+services:
+  juru-website:
+    build: .
+    image: juru-website:latest
+    container_name: juru-website
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3097:3097"
+    environment:
+      - NODE_ENV=production
+      - HOST=0.0.0.0
+      - PORT=3097
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-127.0.0.1:3097,localhost:3097,website.juru.ai.id}
+      - PILOT_ACCESS_TOKEN=${PILOT_ACCESS_TOKEN}
+      - PILOT_ALLOWED_TARGETS=${PILOT_ALLOWED_TARGETS:-example.com,pa-semarang.go.id,www.pa-semarang.go.id}
+      - AUDIT_STORAGE_ENABLED=${AUDIT_STORAGE_ENABLED:-true}
+      - AUDIT_DB_PATH=/app/data/private/audits.sqlite
+      - AI_PROVIDER=${AI_PROVIDER:-none}
+      - RANKING_PUBLISH_ENABLED=${RANKING_PUBLISH_ENABLED:-false}
+      - PAGESPEED_API_KEY=${PAGESPEED_API_KEY:-}
+    volumes:
+      - juru_website_data:/app/data
+
+volumes:
+  juru_website_data:

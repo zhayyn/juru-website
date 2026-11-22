@@ -34,8 +34,8 @@ async function killChromeBounded(instance: LocalChromeInstance | undefined, kill
     await Promise.race([
       Promise.resolve().then(() => instance.kill()).catch(() => undefined),
       new Promise<void>((resolve) => {
+        // This deadline must keep Node alive until cleanup can close the proxy.
         killTimer = setTimeout(resolve, killTimeoutMs);
-        killTimer.unref?.();
       }),
     ]);
   } catch {
@@ -98,7 +98,8 @@ export async function runLocalLighthouse(
       timedOut = true;
       reject(new Error('Local audit timeout.'));
     }, timeoutMs);
-    timer.unref?.();
+    // Awaited work may have no live handles (for example a stalled Chrome launch).
+    // Keep its deadline referenced so the promise always settles before shutdown.
   });
 
   try {

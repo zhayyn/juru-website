@@ -109,6 +109,7 @@ export function LeaderboardSection({
   const filteredRankings = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return rankings.filter((item) => {
+      if (!Number.isFinite(item.total_score)) return false;
       if (filter !== 'all' && item.category !== filter) return false;
       if (!q) return true;
       return (
@@ -156,7 +157,7 @@ export function LeaderboardSection({
         <div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
             <span className="font-semibold text-sky-800 dark:text-sky-300">
-              Papan Peringkat Publik
+              Peringkat Teknis
             </span>
             <span aria-hidden="true">·</span>
             {isSupabaseConnected ? (
@@ -175,7 +176,7 @@ export function LeaderboardSection({
               </span>
             ) : (
               <span>
-                Pratinjau Lokal ·{' '}
+                Sesi Lokal · tidak dibagikan ·{' '}
                 <button
                   type="button"
                   onClick={onOpenSupabaseModal}
@@ -191,10 +192,11 @@ export function LeaderboardSection({
             id="leaderboard-heading"
             className="mt-1 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl dark:text-white"
           >
-            <HoverTip description="Daftar urutan kualitas website yang telah diperiksa. Sorot nama website untuk melihat ringkasan catatannya.">
-              Peringkat Kualitas Website
+            <HoverTip description="Skor teknis empat kategori Lighthouse; bukan ranking resmi/kepatuhan.">
+              Teknis • technical-v1 • MOBILE • beranda
             </HoverTip>
           </h2>
+          <p className="mt-2 text-xs text-slate-500">bukan ranking resmi/kepatuhan</p>
         </div>
 
         {/* Tombol Ekspor */}
@@ -301,9 +303,9 @@ export function LeaderboardSection({
               <th scope="col" className="px-4 py-3 text-right">
                 <HoverTip
                   align="right"
-                  description="Nilai terbaru dari hasil pemeriksaan menyeluruh pada skala 0 hingga 100."
+                  description="Rata-rata empat skor Lighthouse pada beranda MOBILE dengan methodology technical-v1."
                 >
-                  Skor Terbaru
+                  Skor teknis
                 </HoverTip>
               </th>
               <th scope="col" className="px-4 py-3 text-right">
@@ -352,7 +354,7 @@ export function LeaderboardSection({
                     aria-hidden="true"
                   />
                   <p className="mt-2 text-sm font-semibold text-slate-900 dark:text-white">
-                    Belum ada data yang sesuai pencarian
+                    Belum ada hasil teknis terukur yang sesuai
                   </p>
                   <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                     Ubah kata kunci pencarian atau periksa website baru di atas.
@@ -362,7 +364,7 @@ export function LeaderboardSection({
             ) : (
               filteredRankings.map((item, idx) => (
                 <tr
-                  key={item.domain}
+                  key={`${item.domain}:${item.category}`}
                   className="transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-950/60"
                 >
                   <td className="px-4 py-3.5 whitespace-nowrap">

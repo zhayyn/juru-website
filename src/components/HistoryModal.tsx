@@ -35,7 +35,7 @@ export function HistoryModal({
 
   if (!ranking) return null;
 
-  const sortedHistory = [...history].sort(
+  const sortedHistory = history.toSorted(
     (a, b) => new Date(a.audited_at).getTime() - new Date(b.audited_at).getTime(),
   );
 
@@ -220,7 +220,7 @@ export function HistoryModal({
                   Catatan Kronologis Hasil Audit
                 </h3>
                 <ul className="mt-3 divide-y divide-slate-200 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
-                  {[...sortedHistory].reverse().map((item) => (
+                  {sortedHistory.toReversed().map((item) => (
                     <li key={item.id} className="p-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="text-xs font-medium text-slate-500 tabular-nums dark:text-slate-400">

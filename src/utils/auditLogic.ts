@@ -1,5 +1,6 @@
 import type {
   AuditCategory,
+  ModernWebSignals,
   PageSpeedMetrics,
   PillarScore,
   TechnicalSignals,
@@ -79,6 +80,83 @@ export function clampScore(value: number): number {
 }
 
 /**
+ * Memeriksa sinyal struktur HTML modern, deklarasi skema warna, integritas aset CDN,
+ * dan kompatibilitas properti CSS pada dokumen HTML yang diambil server.
+ */
+export function inspectModernWebSignals(
+  html: string,
+  pageUrl: string,
+): ModernWebSignals {
+  let siteHost = '';
+  try {
+    siteHost = new URL(pageUrl).hostname.replace(/^www\./i, '').toLowerCase();
+  } catch {
+    siteHost = '';
+  }
+
+  const hasLangAttribute = /<html\b[^>]*\blang\s*=\s*["']?[a-zA-Z]{2,}/i.test(html);
+  const hasMainLandmark = /<main\b[^>]*>|\brole\s*=\s*["']main["']/i.test(html);
+  const hasColorSchemeMeta =
+    /<meta\b(?=[^>]*\bname\s*=\s*["']color-scheme["'])[^>]*>/i.test(html) ||
+    /\bcolor-scheme\s*:/i.test(html);
+
+  const isUnverifiedThirdParty = (tag: string, rawAssetUrl: string): boolean => {
+    try {
+      const assetHost = new URL(rawAssetUrl).hostname
+        .replace(/^www\./i, '')
+        .toLowerCase();
+      if (!assetHost || assetHost === siteHost || assetHost === 'fonts.googleapis.com') {
+        return false;
+      }
+      return !/\bintegrity\s*=\s*["']sha(?:256|384|512)-/i.test(tag);
+    } catch {
+      return false;
+    }
+  };
+
+  let unverifiedExternalAssets = 0;
+  for (const match of html.matchAll(/<script\b[^>]*>/gi)) {
+    const tag = match[0];
+    const srcMatch = tag.match(/\bsrc\s*=\s*["'](https?:\/\/[^"']+)["']/i);
+    if (srcMatch?.[1] && isUnverifiedThirdParty(tag, srcMatch[1])) {
+      unverifiedExternalAssets += 1;
+    }
+  }
+  for (const match of html.matchAll(/<link\b[^>]*>/gi)) {
+    const tag = match[0];
+    if (!/\brel\s*=\s*["']stylesheet["']/i.test(tag)) continue;
+    const hrefMatch = tag.match(/\bhref\s*=\s*["'](https?:\/\/[^"']+)["']/i);
+    if (hrefMatch?.[1] && isUnverifiedThirdParty(tag, hrefMatch[1])) {
+      unverifiedExternalAssets += 1;
+    }
+  }
+
+  let prefixedMaskWithoutStandard = false;
+  for (const styleMatch of html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)) {
+    const cssText = styleMatch[1] ?? '';
+    for (const blockMatch of cssText.matchAll(/\{([^{}]*)\}/g)) {
+      const declarations = blockMatch[1] ?? '';
+      if (
+        /-webkit-mask(?:-image)?\s*:/i.test(declarations) &&
+        !/(?<![-\w])mask(?:-image)?\s*:/i.test(declarations)
+      ) {
+        prefixedMaskWithoutStandard = true;
+        break;
+      }
+    }
+    if (prefixedMaskWithoutStandard) break;
+  }
+
+  return {
+    hasLangAttribute,
+    hasMainLandmark,
+    hasColorSchemeMeta,
+    unverifiedExternalAssets,
+    prefixedMaskWithoutStandard,
+  };
+}
+
+/**
  * Menghitung skor objektif infrastruktur & teknis berdasarkan metrik Lighthouse
  * (Performance, SEO, Best Practices) serta header keamanan HTTP/HTTPS.
  */
@@ -143,7 +221,7 @@ export function buildPillarSummaryMap(
 ): Record<string, number> {
   const map: Record<string, number> = {};
   for (const pillar of pillars) {
-    map[pillar.id] = clampScore(pillar.score);
+    if (pillar.score !== null) map[pillar.id] = clampScore(pillar.score);
   }
   return map;
 }
@@ -229,7 +307,9 @@ export function formatRelativeTimeId(
 }
 
 function escapeCsvCell(value: string | number): string {
-  const str = String(value ?? '');
+  // Treat externally controlled text as text when opened by spreadsheet apps.
+  const raw = String(value ?? '');
+  const str = typeof value === 'string' && (/^\s*[=+@-]/u.test(raw) || /^[\t\r\n]/.test(raw)) ? `'${raw}` : raw;
   if (/[",\n\r]/.test(str)) {
     return `"${str.replace(/"/g, '""')}"`;
   }
@@ -259,7 +339,7 @@ export function buildCsvExport(rankings: WebsiteRanking[]): string {
     item.domain,
     formatCategoryLabel(item.category),
     item.total_score.toFixed(1),
-    item.score_delta >= 0 ? `+${item.score_delta.toFixed(1)}` : item.score_delta.toFixed(1),
+    item.score_delta,
     item.grade,
     item.audit_count,
     formatDateTimeId(item.last_audited_at),

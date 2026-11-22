@@ -10,14 +10,33 @@ import {
 } from 'lucide-react';
 import type { AuditReport, IndicatorStatus } from '../types/audit';
 import { formatCategoryLabel, formatDateTimeId } from '../utils/auditLogic';
+import { buildImprovementPlan } from '../utils/recommendations';
 import { HoverTip } from './HoverTip';
+import { HelpAction } from './HelpAction';
 
 interface AuditReportViewProps {
   report: AuditReport;
   onOpenSupabaseModal: () => void;
 }
 
+function decodeTitle(value: string): string {
+  const named: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', ndash: '–', mdash: '—' };
+  return value.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp|ndash|mdash);/gi, (entity, key: string) => {
+    if (!key.startsWith('#')) return named[key.toLowerCase()] ?? entity;
+    const number = key[1].toLowerCase() === 'x' ? parseInt(key.slice(2), 16) : Number(key.slice(1));
+    return number > 0 && number <= 0x10ffff && !(number >= 0xd800 && number <= 0xdfff) ? String.fromCodePoint(number) : entity;
+  });
+}
+
+function safeHttpHref(value: string): string | undefined {
+  try { const url = new URL(value); return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password ? url.href : undefined; }
+  catch { return undefined; }
+}
+
 function StatusLabel({ status }: { status: IndicatorStatus }) {
+  if (status === 'Belum Diverifikasi') {
+    return <span className="text-xs font-semibold text-slate-500">Belum Diverifikasi</span>;
+  }
   if (status === 'Terpenuhi') {
     return (
       <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
@@ -37,12 +56,13 @@ function StatusLabel({ status }: { status: IndicatorStatus }) {
   return (
     <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-700 dark:text-red-400">
       <XCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-      <span>Belum Tersedia</span>
+      <span>Tidak teramati pada halaman ini</span>
     </span>
   );
 }
 
-function getScoreToneClass(score: number): string {
+function getScoreToneClass(score: number | null): string {
+  if (score === null) return 'text-slate-500 dark:text-slate-400';
   if (score >= 85) return 'text-emerald-700 dark:text-emerald-400';
   if (score >= 70) return 'text-sky-700 dark:text-sky-400';
   if (score >= 55) return 'text-amber-700 dark:text-amber-400';
@@ -57,64 +77,72 @@ export function AuditReportView({
     window.print();
   };
 
+  const improvementPlan = buildImprovementPlan(report);
+  const probeKnown = report.technicalSignals.statusCode !== null;
+
   const strategyLabel =
     report.strategy === 'MOBILE' ? 'Tampilan Ponsel' : 'Tampilan Komputer';
 
   const metrics = [
     {
-      label: 'Kecepatan Situs',
+      label: 'Performance',
       tip: 'Menggambarkan seberapa gesit halaman website dimuat untuk pengunjung.',
       value:
         report.pageSpeed.performanceScore !== null
-          ? `${report.pageSpeed.performanceScore}`
+          ? `${report.pageSpeed.performanceScore} / 100`
           : '—',
     },
     {
-      label: 'Kemudahan Akses',
+      label: 'Aksesibilitas',
       tip: 'Menilai kenyamanan website bagi seluruh pengunjung, termasuk pengguna disabilitas.',
       value:
         report.pageSpeed.accessibilityScore !== null
-          ? `${report.pageSpeed.accessibilityScore}`
+          ? `${report.pageSpeed.accessibilityScore} / 100`
           : '—',
     },
     {
-      label: 'Keamanan & Standar',
-      tip: 'Memastikan website aman dikunjungi dan mengikuti praktik terbaik web modern.',
+      label: 'Praktik Terbaik',
+      tip: 'Skor Best Practices Lighthouse, bukan jaminan keamanan situs.',
       value:
         report.pageSpeed.bestPracticesScore !== null
-          ? `${report.pageSpeed.bestPracticesScore}`
+          ? `${report.pageSpeed.bestPracticesScore} / 100`
           : '—',
     },
     {
-      label: 'Mudah Ditemukan',
-      tip: 'Mengukur seberapa siap halaman website muncul rapi di hasil pencarian Google.',
+      label: 'Pemeriksaan SEO',
+      tip: 'Pemeriksaan SEO otomatis Lighthouse; bukan jaminan indeks atau posisi Google.',
       value:
-        report.pageSpeed.seoScore !== null ? `${report.pageSpeed.seoScore}` : '—',
+        report.pageSpeed.seoScore !== null ? `${report.pageSpeed.seoScore} / 100` : '—',
     },
     {
-      label: 'Tampil Utama',
+      label: 'Konten utama · LCP',
       tip: 'Waktu yang dibutuhkan hingga konten paling penting tampil penuh di layar pengunjung.',
       value: report.pageSpeed.lcp,
     },
     {
-      label: 'Respon Awal',
+      label: 'Tampilan awal · FCP',
       tip: 'Waktu pertama kali layar mulai menampilkan isi halaman setelah diklik.',
       value: report.pageSpeed.fcp,
     },
     {
-      label: 'Kestabilan Layar',
+      label: 'Pergeseran & blokir',
       tip: 'Mengukur apakah tata letak halaman bergeser tiba-tiba atau tersendat saat dimuat.',
-      value: `${report.pageSpeed.cls} · ${report.pageSpeed.tbt}`,
+      value: `CLS ${report.pageSpeed.cls} · TBT ${report.pageSpeed.tbt}`,
     },
   ];
 
   return (
     <section
       aria-labelledby="audit-report-title"
-      className="print-surface rounded-xl border border-slate-200 bg-white p-6 sm:p-8 dark:border-slate-800 dark:bg-slate-900"
+      className="audit-report print-surface rounded-xl border border-slate-200 bg-white p-6 sm:p-8 dark:border-slate-800 dark:bg-slate-900"
     >
+      <div className="report-kicker" aria-label="Sumber pengukuran">
+        <span className="source-badge">{report.pageSpeed.source === 'lighthouse_local' ? 'Lighthouse lokal' : report.pageSpeed.source === 'pagespeed' ? 'Google PageSpeed' : 'Pengukuran belum lengkap'}</span>
+        <span>Satu halaman · {strategyLabel}</span>
+        {report.pageSpeed.source === 'lighthouse_local' && <span>v{report.pageSpeed.lighthouseVersion || '—'} · {report.pageSpeed.measuredAt ? formatDateTimeId(report.pageSpeed.measuredAt) : formatDateTimeId(report.auditedAt)} · bukan PageSpeed Google</span>}
+      </div>
       {/* Header Laporan & Skor Utama */}
-      <div className="flex flex-col gap-6 border-b border-slate-200 pb-6 lg:flex-row lg:items-start lg:justify-between dark:border-slate-800">
+      <div className="report-heading flex flex-col gap-6 border-b border-slate-200 pb-6 lg:flex-row lg:items-start lg:justify-between dark:border-slate-800">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
             <span className="font-semibold text-sky-800 dark:text-sky-300">
@@ -132,12 +160,12 @@ export function AuditReportView({
             id="audit-report-title"
             className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white"
           >
-            {report.siteName}
+            {decodeTitle(report.siteName)}
           </h2>
 
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <a
-              href={report.url}
+              href={safeHttpHref(report.url)}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 font-mono text-xs text-sky-700 hover:underline dark:text-sky-400"
@@ -153,6 +181,8 @@ export function AuditReportView({
                 <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
                 <span>Tersimpan di Peringkat Online</span>
               </span>
+            ) : report.pageSpeed.source === 'lighthouse_local' ? (
+              <span className="text-xs text-slate-600 dark:text-slate-400">Laporan lokal · tidak masuk peringkat online</span>
             ) : (
               <button
                 type="button"
@@ -163,26 +193,27 @@ export function AuditReportView({
                 <span>
                   {report.cloudSyncError
                     ? `Belum tersimpan (${report.cloudSyncError})`
-                    : 'Mode lokal · Hubungkan Cloud untuk menyimpan ke peringkat bersama'}
+                    : 'Belum tersimpan bersama · hanya server dapat menyimpan hasil yang memenuhi syarat'}
                 </span>
               </button>
             )}
           </div>
 
-          <p className="max-w-3xl pt-1 text-sm leading-relaxed text-slate-700 dark:text-slate-300">
-            {report.executiveSummary}
+          <p data-storage-status={report.storage?.status || 'disabled'} className={`storage-status text-xs ${report.storage?.status === 'failed' ? 'text-amber-800 dark:text-amber-300' : 'text-slate-600 dark:text-slate-400'}`}>
+            {report.storage?.status === 'saved' ? 'Tersimpan di database server · SQLite' : report.storage?.status === 'failed' ? 'Belum tersimpan di database · simpan PDF sebagai salinan' : 'Penyimpanan database nonaktif'}
           </p>
+          <div className="report-caption"><HoverTip description={report.executiveSummary}>Ringkasan audit</HoverTip></div>
         </div>
 
         {/* Kartu Skor Total & Tombol Cetak */}
-        <div className="flex flex-row items-center justify-between gap-6 rounded-lg border border-slate-200 bg-slate-50/70 p-4 sm:min-w-[250px] lg:flex-col lg:items-end dark:border-slate-800 dark:bg-slate-950/60">
+        <div className="total-score-card flex flex-col items-start justify-between gap-4 rounded-lg sm:flex-row sm:items-center border border-slate-200 bg-slate-50/70 p-4 sm:min-w-[250px] lg:flex-col lg:items-end dark:border-slate-800 dark:bg-slate-950/60">
           <div className="lg:text-right">
             <span className="block text-xs font-medium text-slate-500 dark:text-slate-400">
               <HoverTip
                 align="right"
-                description="Nilai gabungan dari kelengkapan informasi, kenyamanan tampilan, serta kecepatan dan keamanan website (skala 0 sampai 100)."
+                description="Rata-rata empat skor Lighthouse: Performance, Accessibility, Best Practices, SEO; masing-masing berbobot 25%. Jika tidak lengkap, skor tidak tersedia."
               >
-                Nilai Keseluruhan
+                Rata-rata teknis
               </HoverTip>
             </span>
             <div className="mt-1 flex items-baseline gap-1.5 lg:justify-end">
@@ -191,9 +222,9 @@ export function AuditReportView({
                   report.totalScore,
                 )}`}
               >
-                {report.totalScore.toFixed(1)}
+                {report.totalScore === null ? '—' : report.totalScore.toFixed(1)}
               </span>
-              <span className="font-mono text-sm text-slate-500 dark:text-slate-400">
+              <span className="whitespace-nowrap font-mono text-sm text-slate-500 dark:text-slate-400">
                 / 100
               </span>
             </div>
@@ -213,6 +244,14 @@ export function AuditReportView({
         </div>
       </div>
 
+      <div className="methodology-strip"><HoverTip description={`Skor teknis ${report.methodology || 'technical-v1'}: rata-rata empat kategori, masing-masing 25%. Checklist tidak masuk skor. ${report.rankingReason || ''}`}>Metode &amp; batasan</HoverTip><span>Satu halaman · bukan audit kepatuhan resmi</span></div>
+      <p className="methodology-note mt-3 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
+        Skor teknis {report.methodology || 'technical-v1'} = (Performance + Accessibility + Best Practices + SEO) / 4,
+        masing-masing 25%. Checklist konten dan pemeriksaan manual tidak masuk skor.{' '}
+        {report.pageSpeed.source === 'lighthouse_local' ? <>Lighthouse lokal {report.pageSpeed.lighthouseVersion || ''}, bukan hasil PageSpeed Google. Waktu pengukuran: {report.pageSpeed.measuredAt ? formatDateTimeId(report.pageSpeed.measuredAt) : formatDateTimeId(report.auditedAt)}. Hasil dipengaruhi Mac dan koneksi lokal; bukan data lapangan Core Web Vitals atau bukti kepatuhan resmi.</> : <>PageSpeed adalah uji lab, bukan data lapangan Core Web Vitals atau bukti kepatuhan resmi.</>}
+        {report.rankingReason && <span> Kelayakan peringkat: {report.rankingReason}.</span>}
+      </p>
+
       {/* Peringatan apabila pengukuran kecepatan sedang terbatas */}
       {report.pageSpeed.fetchWarning && (
         <div
@@ -221,10 +260,17 @@ export function AuditReportView({
         >
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <span>
-            Layanan pengukur kecepatan eksternal sedang padat, sehingga nilai kecepatan
-            dihitung dari pemeriksaan respon langsung ke website Anda.
+            {report.pageSpeed.fetchWarning} Skor yang tidak terukur tetap —; probe HTTP tidak menggantikan Lighthouse.
           </span>
         </div>
+      )}
+
+      {improvementPlan.length > 0 && (
+        <aside className="next-action print-avoid-break" aria-labelledby="next-action-title">
+          <div><p className="eyebrow" id="next-action-title">Prioritas berikutnya</p>
+          <h3><HoverTip description={improvementPlan[0].recommendation}>{improvementPlan[0].area}</HoverTip></h3></div>
+          <a href="#audit-actions">Lihat langkah perbaikan ↓</a>
+        </aside>
       )}
 
       {/* Strip Metrik Kecepatan & Keamanan Pengunjung */}
@@ -235,11 +281,11 @@ export function AuditReportView({
           </HoverTip>
         </h3>
 
-        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
+        <div className="metric-grid mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {metrics.map((metric) => (
             <div
               key={metric.label}
-              className="rounded-lg border border-slate-200 p-3 dark:border-slate-800"
+              className="metric-card rounded-lg border border-slate-200 p-3 dark:border-slate-800"
             >
               <span className="block text-xs text-slate-500 dark:text-slate-400">
                 <HoverTip description={metric.tip}>{metric.label}</HoverTip>
@@ -250,17 +296,17 @@ export function AuditReportView({
             </div>
           ))}
 
-          <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+          <div className="metric-card rounded-lg border border-slate-200 p-3 dark:border-slate-800">
             <span className="block text-xs text-slate-500 dark:text-slate-400">
               <HoverTip
                 align="right"
-                description="Menandakan koneksi pengunjung terlindungi gembok keamanan HTTPS beserta waktu respon awal situs."
+                description="Hasil probe koneksi HTTPS dan waktu respon; bukan audit keamanan menyeluruh."
               >
-                Sertifikat Aman
+                Koneksi HTTPS
               </HoverTip>
             </span>
             <span className="mt-1 inline-flex items-center gap-1 font-mono text-xs font-semibold tabular-nums text-slate-900 dark:text-white">
-              {report.technicalSignals.httpsValid ? (
+              {probeKnown && report.technicalSignals.httpsValid ? (
                 <ShieldCheck
                   className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400"
                   aria-hidden="true"
@@ -272,9 +318,9 @@ export function AuditReportView({
                 />
               )}
               <span>
-                {report.technicalSignals.httpsValid ? 'Aman' : 'Belum Aman'}
+                {!probeKnown ? 'Belum Diverifikasi' : report.technicalSignals.httpsValid ? 'HTTPS teramati' : 'HTTPS tidak teramati'}
                 {report.technicalSignals.responseTimeMs !== null
-                  ? ` · ${report.technicalSignals.responseTimeMs}ms`
+                  ? ` · ${Math.round(report.technicalSignals.responseTimeMs)}ms`
                   : ''}
               </span>
             </span>
@@ -284,61 +330,122 @@ export function AuditReportView({
         {/* Ringkasan Perlindungan Keamanan */}
         <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-slate-600 dark:text-slate-400">
           <span className="font-medium text-slate-800 dark:text-slate-200">
-            <HoverTip description="Lapisan perlindungan otomatis di browser pengunjung untuk mencegah pencurian data atau penyalahgunaan halaman.">
+            <HoverTip description="Kehadiran header keamanan HTTP yang teramati pada satu halaman; kehadiran header bukan validasi isi kebijakan atau jaminan keamanan menyeluruh.">
               Perlindungan Browser:
             </HoverTip>
           </span>
           <span>
-            <HoverTip description="Memastikan pengunjung selalu diarahkan ke jalur koneksi terenkripsi (HTTPS).">
+            <HoverTip description="Header Strict-Transport-Security (HSTS) teramati pada respons; nilai max-age dan pengalihan HTTP ke HTTPS tetap perlu diverifikasi manual.">
               Enkripsi Paksa:
             </HoverTip>{' '}
             <strong className="font-medium text-slate-900 dark:text-white">
-              {report.technicalSignals.securityHeaders.hsts ? 'Aktif' : 'Belum aktif'}
+              {!probeKnown ? 'Belum Diverifikasi' : report.technicalSignals.securityHeaders.hsts ? 'Teramati' : 'Tidak teramati'}
             </strong>
           </span>
           <span>
-            <HoverTip description="Mencegah halaman situs Anda disisipkan ke situs lain tanpa izin.">
+            <HoverTip description="Header X-Frame-Options teramati pada respons; direktif pembatasan frame tetap perlu diverifikasi manual.">
               Anti-Penyisipan:
             </HoverTip>{' '}
             <strong className="font-medium text-slate-900 dark:text-white">
-              {report.technicalSignals.securityHeaders.xFrameOptions
-                ? 'Aktif'
-                : 'Belum aktif'}
+              {!probeKnown ? 'Belum Diverifikasi' : report.technicalSignals.securityHeaders.xFrameOptions ? 'Teramati' : 'Tidak teramati'}
             </strong>
           </span>
           <span>
-            <HoverTip description="Mencegah browser salah membaca tipe berkas unduhan yang berisiko.">
+            <HoverTip description="Header X-Content-Type-Options teramati pada respons; pastikan bernilai nosniff melalui pemeriksaan manual.">
               Proteksi Berkas:
             </HoverTip>{' '}
             <strong className="font-medium text-slate-900 dark:text-white">
-              {report.technicalSignals.securityHeaders.xContentTypeOptions
-                ? 'Aktif'
-                : 'Belum aktif'}
+              {!probeKnown ? 'Belum Diverifikasi' : report.technicalSignals.securityHeaders.xContentTypeOptions ? 'Teramati' : 'Tidak teramati'}
             </strong>
           </span>
           <span>
-            <HoverTip description="Membatasi skrip luar yang boleh berjalan agar website terhindar dari sisipan berbahaya.">
+            <HoverTip description="Header Content-Security-Policy (CSP) teramati pada respons; kehadiran header belum membuktikan direktif bebas wildcard atau efektif mencegah injeksi.">
               Kebijakan Konten:
             </HoverTip>{' '}
             <strong className="font-medium text-slate-900 dark:text-white">
-              {report.technicalSignals.securityHeaders.csp ? 'Aktif' : 'Belum aktif'}
+              {!probeKnown ? 'Belum Diverifikasi' : report.technicalSignals.securityHeaders.csp ? 'Teramati' : 'Tidak teramati'}
             </strong>
           </span>
         </div>
+        <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+          Status <strong>Teramati</strong> hanya menandakan header ada pada satu respons halaman; isi direktif, pengalihan HTTP→HTTPS, dan efektivitas proteksi tetap perlu diverifikasi manual.
+        </p>
+
+        {probeKnown && report.technicalSignals.modernWeb && (
+          <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-slate-600 dark:text-slate-400">
+            <span className="font-medium text-slate-800 dark:text-slate-200">
+              <HoverTip description="Pemeriksaan kesesuaian HTML semantik, dukungan tema browser, dan integritas aset CDN pihak ketiga.">
+                Kepatuhan Web Modern:
+              </HoverTip>
+            </span>
+            <span>
+              <HoverTip description="Memastikan skrip dan stylesheet dari CDN pihak ketiga dilindungi atribut integrity agar tidak mudah dimodifikasi dari luar.">
+                Integritas CDN (SRI):
+              </HoverTip>{' '}
+              <strong className="font-medium text-slate-900 dark:text-white">
+                {report.technicalSignals.modernWeb.unverifiedExternalAssets === 0
+                  ? 'Terpenuhi'
+                  : `${report.technicalSignals.modernWeb.unverifiedExternalAssets} aset tanpa SRI`}
+              </strong>
+            </span>
+            <span>
+              <HoverTip description="Keberadaan atribut bahasa dokumen (<html lang>) dan penanda konten utama (<main>) untuk keterbacaan serta alat bantu.">
+                Bahasa &amp; Landmark HTML:
+              </HoverTip>{' '}
+              <strong className="font-medium text-slate-900 dark:text-white">
+                {report.technicalSignals.modernWeb.hasLangAttribute && report.technicalSignals.modernWeb.hasMainLandmark
+                  ? 'Lengkap'
+                  : report.technicalSignals.modernWeb.hasLangAttribute || report.technicalSignals.modernWeb.hasMainLandmark
+                    ? 'Sebagian'
+                    : 'Belum teramati'}
+              </strong>
+            </span>
+            <span>
+              <HoverTip description="Deklarasi color-scheme agar latar belakang awal, scrollbar, dan kontrol formulir browser menyesuaikan tema terang/gelap.">
+                Skema Tema Browser:
+              </HoverTip>{' '}
+              <strong className="font-medium text-slate-900 dark:text-white">
+                {report.technicalSignals.modernWeb.hasColorSchemeMeta ? 'Teramati' : 'Tidak teramati'}
+              </strong>
+            </span>
+          </div>
+        )}
       </div>
+
+      {/* Hal yang Perlu Diperbaiki & Saran Langkah Perbaikan */}
+      {improvementPlan.length > 0 && (
+        <div id="audit-actions" className="audit-actions mt-8">
+          <h3 className="text-base font-bold text-slate-900 dark:text-white">
+            <HoverTip description="Daftar hal yang paling berdampak pada pengalaman pengunjung beserta saran langkah perbaikannya.">
+              Hal yang Perlu Diperbaiki &amp; Saran Praktis
+            </HoverTip>
+          </h3>
+          <ul className="priority-list">
+            {improvementPlan.map(item => <li key={item.id}>
+              <HelpAction domain={report.domain} area={item.area} severity={item.severity}
+                source={item.source} issue={item.issue} recommendation={item.recommendation} verification={item.verification} />
+            </li>)}
+          </ul>
+        </div>
+      )}
 
       {/* Rincian Skor Per Aspek & Indikator */}
       <div className="mt-8 space-y-5">
         <h3 className="text-base font-bold text-slate-900 dark:text-white">
-          <HoverTip description="Rincian nilai per bagian. Sorot setiap judul aspek atau indikator di bawah untuk membaca penjelasannya.">
-            Rincian Aspek Penilaian
+          <HoverTip description="Bukti yang ditemukan otomatis terbatas pada satu halaman. Isi dokumen, periode, dan pemenuhan seluruh indikator tetap perlu diperiksa manusia.">
+            {report.checklistVersion ? 'Checklist otomatis & verifikasi' : 'Checklist pemeriksaan manual'}
           </HoverTip>
         </h3>
+        {report.checklistVersion && <div className="checklist-summary text-xs text-slate-600 dark:text-slate-400">
+          <code>{report.checklistVersion}</code>
+          {report.checklistSummary && <p>{report.checklistSummary.withEvidence} / {report.checklistSummary.total} indikator memiliki bukti terbatas · {report.checklistSummary.manual} perlu pemeriksaan manual.<br />
+            Ini cakupan bukti, bukan persentase kepatuhan. Tautan kandidat belum membuktikan isi atau periode dokumen.</p>}
+        </div>}
 
         {report.pillarScores.map((pillar) => (
           <div
             key={pillar.id}
-            className="print-avoid-break rounded-lg border border-slate-200 dark:border-slate-800"
+            className="manual-pillar rounded-lg border border-slate-200 dark:border-slate-800"
           >
             <div className="flex items-center justify-between gap-4 border-b border-slate-200 bg-slate-50/70 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/50">
               <h4 className="text-sm font-bold text-slate-900 dark:text-white">
@@ -346,14 +453,14 @@ export function AuditReportView({
               </h4>
               <div className="flex items-baseline gap-3 shrink-0">
                 <span className="text-xs text-slate-500 tabular-nums dark:text-slate-400">
-                  Bobot {Math.round(pillar.weight * 100)}%
+                  Checklist · tidak diskor
                 </span>
                 <span
                   className={`font-mono text-lg font-bold tabular-nums ${getScoreToneClass(
                     pillar.score,
                   )}`}
                 >
-                  {pillar.score.toFixed(1)}
+                  {pillar.score === null ? '—' : pillar.score.toFixed(1)}
                 </span>
               </div>
             </div>
@@ -370,13 +477,24 @@ export function AuditReportView({
                         <HoverTip description={ind.note}>{ind.name}</HoverTip>
                       </span>
                       <StatusLabel status={ind.status} />
+                      {ind.checkMode && <span className="text-xs text-slate-500 dark:text-slate-400">{ind.checkMode === 'automatic' ? 'Otomatis' : ind.checkMode === 'partial' ? 'Bukti terbatas' : 'Manual'}</span>}
                     </div>
+                    {ind.evidence && ind.evidence.some(e => safeHttpHref(e.url)) && <>
+                      <details className="checklist-evidence print:hidden">
+                        <summary>Bukti ({ind.evidence.filter(e => safeHttpHref(e.url)).length})</summary>
+                        <ul>{ind.evidence.filter(e => safeHttpHref(e.url)).map((e, index) => <li key={`${e.url}-${index}`}>
+                          <a href={safeHttpHref(e.url)} target="_blank" rel="noopener noreferrer">{e.url}</a>
+                          <p>{e.source} · {e.detail}</p>
+                        </li>)}</ul>
+                      </details>
+                      <ul className="checklist-print-evidence hidden print:block">{ind.evidence.filter(e => safeHttpHref(e.url)).map((e, index) => <li key={index}>{e.url} — {e.source}: {e.detail}</li>)}</ul>
+                    </>}
                     <p className="hidden print:block mt-1 text-xs text-slate-600">
                       {ind.note}
                     </p>
                   </div>
                   <div className="shrink-0 font-mono text-xs font-semibold tabular-nums text-slate-700 dark:text-slate-300">
-                    {ind.score.toFixed(0)} / 100
+                    {ind.score === null ? '—' : ind.score.toFixed(0)} / 100
                   </div>
                 </div>
               ))}
@@ -385,74 +503,17 @@ export function AuditReportView({
         ))}
       </div>
 
-      {/* Hal yang Perlu Diperbaiki & Saran Langkah Perbaikan */}
-      {report.findings.length > 0 && (
-        <div className="mt-8 print-avoid-break">
-          <h3 className="text-base font-bold text-slate-900 dark:text-white">
-            <HoverTip description="Daftar hal yang paling berdampak pada pengalaman pengunjung beserta saran langkah perbaikannya.">
-              Hal yang Perlu Diperbaiki &amp; Saran Praktis
-            </HoverTip>
-          </h3>
-          <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
-            <table className="w-full border-collapse text-left text-sm">
-              <thead className="bg-slate-50 text-xs font-semibold text-slate-700 dark:bg-slate-950 dark:text-slate-300">
-                <tr>
-                  <th scope="col" className="px-4 py-3">
-                    Bagian &amp; Prioritas
-                  </th>
-                  <th scope="col" className="px-4 py-3">
-                    Kondisi yang Ditemukan
-                  </th>
-                  <th scope="col" className="px-4 py-3">
-                    Saran Perbaikan
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                {report.findings.map((item, idx) => (
-                  <tr
-                    key={`${item.area}-${idx}`}
-                    className="align-top text-xs leading-relaxed"
-                  >
-                    <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white">
-                      <div>{item.area}</div>
-                      <div
-                        className={`mt-1 text-xs font-medium ${
-                          item.severity === 'Tinggi'
-                            ? 'text-red-700 dark:text-red-400'
-                            : item.severity === 'Sedang'
-                              ? 'text-amber-700 dark:text-amber-400'
-                              : 'text-slate-500 dark:text-slate-400'
-                        }`}
-                      >
-                        Prioritas {item.severity}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
-                      {item.issue}
-                    </td>
-                    <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
-                      {item.recommendation}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
       {/* Halaman Publik yang Diperiksa */}
       {report.groundingSources.length > 0 && (
         <div className="mt-8 border-t border-slate-200 pt-5 print-avoid-break dark:border-slate-800">
           <h3 className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-            Halaman yang Diperiksa di Pencarian Publik
+            Sumber Bukti Pengukuran
           </h3>
           <ul className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-            {report.groundingSources.slice(0, 8).map((source) => (
+            {report.groundingSources.filter(source => safeHttpHref(source.uri)).slice(0, 8).map((source) => (
               <li key={source.uri} className="truncate">
                 <a
-                  href={source.uri}
+                  href={safeHttpHref(source.uri)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex max-w-full items-center gap-1.5 text-xs text-sky-700 hover:underline dark:text-sky-400"

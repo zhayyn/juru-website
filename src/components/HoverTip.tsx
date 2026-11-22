@@ -1,4 +1,4 @@
-import { type ReactNode, useId, useState } from 'react';
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 
 interface HoverTipProps {
   children: ReactNode;
@@ -6,66 +6,55 @@ interface HoverTipProps {
   align?: 'left' | 'center' | 'right';
   placement?: 'top' | 'bottom';
   className?: string;
+  /** Inside an existing control: its parent owns focus and aria-description. */
+  passive?: boolean;
 }
 
-/**
- * Menampilkan keterangan tambahan secara halus saat judul disorot (hover),
- * difokuskan dengan keyboard, atau diketuk pada perangkat sentuh.
- */
-export function HoverTip({
-  children,
-  description,
-  align = 'left',
-  placement = 'top',
-  className = '',
-}: HoverTipProps) {
+/** Supplementary text only. Important errors and provenance remain visible. */
+export function HoverTip({ children, description, align = 'left', placement = 'top', className = '', passive = false }: HoverTipProps) {
   const [isOpen, setIsOpen] = useState(false);
   const tooltipId = useId();
-
-  const alignClasses =
-    align === 'right'
-      ? 'right-0'
-      : align === 'center'
-        ? 'left-1/2 -translate-x-1/2'
-        : 'left-0';
-
-  const placementClasses =
-    placement === 'bottom' ? 'top-full mt-2' : 'bottom-full mb-2';
-
+  const wrapper = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!passive) return;
+    const control = wrapper.current?.closest('button');
+    const focus = () => { if (control?.matches(':focus-visible')) setIsOpen(true); };
+    const blur = () => setIsOpen(false);
+    const activate = () => setIsOpen(true);
+    control?.addEventListener('focus', focus);
+    control?.addEventListener('blur', blur);
+    control?.addEventListener('click', activate);
+    return () => {
+      control?.removeEventListener('focus', focus);
+      control?.removeEventListener('blur', blur);
+      control?.removeEventListener('click', activate);
+    };
+  }, [passive]);
+  useEffect(() => {
+    if (!isOpen) return;
+    const outside = (event: PointerEvent) => { if (!wrapper.current?.contains(event.target as Node)) setIsOpen(false); };
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setIsOpen(false); };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
+  }, [isOpen]);
   return (
-    <span
-      className={`relative inline-flex items-center ${className}`}
-      onMouseEnter={() => setIsOpen(true)}
-      onMouseLeave={() => setIsOpen(false)}
-    >
-      <span
-        tabIndex={0}
-        aria-describedby={isOpen ? tooltipId : undefined}
-        onFocus={() => setIsOpen(true)}
-        onBlur={() => setIsOpen(false)}
-        onClick={(e) => {
-          // Mendukung ketukan cepat di perangkat sentuh tanpa mengganggu klik tombol induk
-          if (e.currentTarget === e.target) {
-            setIsOpen((prev) => !prev);
-          }
-        }}
-        className="cursor-help decoration-slate-300 underline-offset-4 hover:underline focus:outline-none dark:decoration-slate-600"
-      >
+    <span ref={wrapper} className={`hover-tip ${className}`} data-align={align} data-placement={placement}
+      onPointerEnter={event => { if (event.pointerType !== 'touch') setIsOpen(true); }}
+      onPointerLeave={event => {
+        const focusRoot = passive ? wrapper.current?.closest('button') : event.currentTarget;
+        if (event.pointerType !== 'touch' && !focusRoot?.contains(document.activeElement)) setIsOpen(false);
+      }}>
+      <span data-tip-trigger="true" role={passive ? undefined : 'button'} tabIndex={passive ? undefined : 0}
+        aria-describedby={tooltipId} aria-expanded={passive ? undefined : isOpen}
+        onFocus={event => { if (event.currentTarget.matches(':focus-visible')) setIsOpen(true); }}
+        onBlur={event => { if (!event.currentTarget.parentElement?.contains(event.relatedTarget)) setIsOpen(false); }}
+        onClick={passive ? undefined : () => setIsOpen(true)}
+        onKeyDown={passive ? undefined : event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setIsOpen(value => !value); } }}
+        className="tip-trigger">
         {children}
       </span>
-
-      <span
-        id={tooltipId}
-        role="tooltip"
-        aria-hidden={!isOpen}
-        className={`print:hidden pointer-events-none absolute z-40 w-64 max-w-[80vw] rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs font-normal leading-relaxed tracking-normal text-slate-700 shadow-lg transition-all duration-150 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 ${placementClasses} ${alignClasses} ${
-          isOpen
-            ? 'translate-y-0 opacity-100'
-            : 'invisible translate-y-1 opacity-0'
-        }`}
-      >
-        {description}
-      </span>
+      <span id={tooltipId} role="tooltip" hidden={!isOpen} className="tip-content print:hidden">{description}</span>
     </span>
   );
 }

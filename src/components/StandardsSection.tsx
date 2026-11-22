@@ -13,8 +13,8 @@ export function StandardsSection() {
           id="standards-heading"
           className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl dark:text-white"
         >
-          <HoverTip description="Setiap website dinilai secara adil berdasarkan gabungan kecepatan nyata dan kelengkapan informasi publiknya.">
-            Panduan Bobot Penilaian
+          <HoverTip description="Skor teknis berasal dari empat kategori Lighthouse; checklist konten hanya untuk verifikasi manual.">
+            Panduan Metodologi &amp; Checklist
           </HoverTip>
         </h2>
         <span className="text-xs text-slate-500 dark:text-slate-400">
@@ -22,6 +22,11 @@ export function StandardsSection() {
         </span>
       </div>
 
+      <p className="mt-4 text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+        Ranking technical-v1: Performance 25%, Accessibility 25%, Best Practices 25%, SEO 25%.
+        Hanya beranda MOBILE dengan empat skor lengkap yang masuk peringkat.
+        Checklist manual di bawah tidak masuk skor; bukan audit kepatuhan resmi.
+      </p>
       <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
         {(['peradilan_agama', 'umum'] as const).map((key) => {
           const std = AUDIT_STANDARDS[key];
@@ -49,7 +54,7 @@ export function StandardsSection() {
                       <HoverTip description={pillar.description}>{pillar.name}</HoverTip>
                     </span>
                     <span className="font-mono text-xs font-bold tabular-nums text-sky-700 dark:text-sky-400">
-                      {pillar.weightLabel}
+                      Manual
                     </span>
                   </li>
                 ))}

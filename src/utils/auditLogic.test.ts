@@ -7,6 +7,7 @@ import {
   computeWeightedTotalScore,
   extractJsonFromGeminiText,
   formatRelativeTimeId,
+  inspectModernWebSignals,
   normalizeDomain,
   normalizeUrl,
 } from './auditLogic';
@@ -122,7 +123,35 @@ test('buildCsvExport menghasilkan CSV dengan BOM dan escaping tanda kutip', () =
   assert.ok(csv.startsWith('\uFEFF'));
   assert.ok(csv.includes('"PA Semarang, Kelas I-A"'));
   assert.ok(csv.includes('pa-semarang.go.id'));
-  assert.ok(csv.includes('+3.2'));
+  assert.ok(csv.includes(',91.5,3.2,A (Unggul),4,'));
+});
+
+test('buildCsvExport mempertahankan delta positif negatif dan nol sebagai angka', () => {
+  for (const delta of [3.2, -2, 0]) {
+    const csv = buildCsvExport([{
+      domain: 'example.com', site_name: 'Fixture Sintetis', category: 'umum', total_score: 80,
+      score_delta: delta, grade: 'B (Baik)', audit_count: 1,
+      last_audited_at: '2026-11-18T08:00:00.000Z', pillar_scores: {}, findings_summary: 'Pengukuran sintetis',
+    }]);
+    const cells = csv.split('\r\n')[1].split(',');
+    assert.equal(cells[5], String(delta), `delta numerik ${delta} tidak boleh mendapat apostrof atau tanda plus`);
+    assert.equal(Number(cells[5]), delta);
+  }
+});
+
+test('buildCsvExport menetralkan formula dari judul dan ringkasan situs tidak tepercaya', () => {
+  for (const payload of ['=1+1', '+1+1', '-1+1', '@SUM(1)', '  =1+1', '\t=1+1', '\r=1+1', '\n=1+1']) {
+    const csv = buildCsvExport([{
+      domain: 'example.com', site_name: payload, category: 'umum', total_score: 80,
+      score_delta: 0, grade: 'B (Baik)', audit_count: 1,
+      last_audited_at: '2026-11-18T08:00:00.000Z', pillar_scores: {}, findings_summary: payload,
+    }]);
+    // Quoting a CSV cell alone does not stop spreadsheet formula interpretation.
+    const safe = `'${payload}`;
+    const escaped = /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+    assert.ok(csv.includes(`1,${escaped},example.com,`), `unsafe site title: ${JSON.stringify(payload)}`);
+    assert.ok(csv.endsWith(`,${escaped}`), `unsafe summary: ${JSON.stringify(payload)}`);
+  }
 });
 
 test('formatRelativeTimeId memformat selisih waktu dengan alami', () => {
@@ -130,4 +159,34 @@ test('formatRelativeTimeId memformat selisih waktu dengan alami', () => {
   assert.equal(formatRelativeTimeId('2026-11-17T09:59:30.000Z', now), 'Baru saja');
   assert.equal(formatRelativeTimeId('2026-11-17T09:45:00.000Z', now), '15 menit lalu');
   assert.equal(formatRelativeTimeId('2026-11-17T07:00:00.000Z', now), '3 jam lalu');
+});
+
+test('inspectModernWebSignals mendeteksi sinyal HTML modern, SRI CDN, dan mask CSS', () => {
+  const modernHtml = `<!doctype html><html lang="id"><head>
+    <meta name="color-scheme" content="light dark">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter">
+    <link rel="stylesheet" href="https://cdn.example.org/app.css" integrity="sha384-abc123" crossorigin="anonymous">
+    <script src="https://pa-semarang.go.id/app.js"></script>
+    <style>.card::before{-webkit-mask:linear-gradient(#fff 0 0);mask:linear-gradient(#fff 0 0);}</style>
+  </head><body><main>Konten</main></body></html>`;
+  assert.deepEqual(inspectModernWebSignals(modernHtml, 'https://pa-semarang.go.id/'), {
+    hasLangAttribute: true,
+    hasMainLandmark: true,
+    hasColorSchemeMeta: true,
+    unverifiedExternalAssets: 0,
+    prefixedMaskWithoutStandard: false,
+  });
+
+  const legacyHtml = `<!doctype html><html><head>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <script src="https://cdn.example.net/widget.js"></script>
+    <style>.badge::before{-webkit-mask:linear-gradient(#fff 0 0);-webkit-mask-composite:xor;}</style>
+  </head><body><div>Isi</div></body></html>`;
+  assert.deepEqual(inspectModernWebSignals(legacyHtml, 'https://contoh.go.id/'), {
+    hasLangAttribute: false,
+    hasMainLandmark: false,
+    hasColorSchemeMeta: false,
+    unverifiedExternalAssets: 2,
+    prefixedMaskWithoutStandard: true,
+  });
 });

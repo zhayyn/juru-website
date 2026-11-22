@@ -2,23 +2,34 @@ export type AuditCategory = 'peradilan_agama' | 'umum';
 
 export type AuditStrategy = 'MOBILE' | 'DESKTOP';
 
-export type IndicatorStatus = 'Terpenuhi' | 'Sebagian' | 'Tidak Ditemukan';
+export type IndicatorStatus = 'Terpenuhi' | 'Sebagian' | 'Tidak Ditemukan' | 'Belum Diverifikasi';
+
+export interface ChecklistEvidence { source: 'html' | 'headers' | 'lighthouse'; url: string; detail: string }
+
+export interface ChecklistSummary {
+  total: number; automatic: number; partial: number; manual: number;
+  withEvidence: number; coveragePercent: number;
+  statusCounts: Record<IndicatorStatus, number>; checkedAt?: string;
+}
 
 export interface SubIndicatorResult {
   id: string;
   name: string;
   status: IndicatorStatus;
   note: string;
-  score: number;
+  score: number | null;
   maxScore: number;
+  evidence?: ChecklistEvidence[];
+  checkMode?: 'automatic' | 'partial' | 'manual';
+  ruleVersion?: string;
 }
 
 export interface PillarScore {
   id: string;
   name: string;
   weight: number; // e.g. 0.4, 0.3
-  score: number; // 0 - 100
-  weightedContribution: number;
+  score: number | null; // null = belum diukur, bukan nol
+  weightedContribution: number | null;
   summary: string;
   indicators: SubIndicatorResult[];
 }
@@ -37,8 +48,20 @@ export interface PageSpeedMetrics {
   fcpMs: number | null;
   clsNum: number | null;
   tbtMs: number | null;
-  source: 'pagespeed' | 'server_probe';
+  source: 'pagespeed' | 'server_probe' | 'lighthouse_local';
+  lighthouseVersion?: string;
+  measuredAt?: string;
+  requestedUrl?: string;
+  finalUrl?: string;
   fetchWarning?: string;
+}
+
+export interface ModernWebSignals {
+  hasLangAttribute: boolean;
+  hasMainLandmark: boolean;
+  hasColorSchemeMeta: boolean;
+  unverifiedExternalAssets: number;
+  prefixedMaskWithoutStandard: boolean;
 }
 
 export interface TechnicalSignals {
@@ -53,6 +76,7 @@ export interface TechnicalSignals {
     csp: boolean;
   };
   responseTimeMs: number | null;
+  modernWeb?: ModernWebSignals;
 }
 
 export interface AuditFinding {
@@ -61,6 +85,13 @@ export interface AuditFinding {
   issue: string;
   recommendation: string;
 }
+
+export interface ImprovementAction extends AuditFinding {
+  id: string;
+  source: 'Pengukuran' | 'Indikator' | 'AI — perlu konfirmasi';
+  verification: string;
+}
+
 
 export interface GroundingSource {
   title: string;
@@ -75,7 +106,12 @@ export interface AuditReport {
   category: AuditCategory;
   strategy: AuditStrategy;
   auditedAt: string;
-  totalScore: number;
+  totalScore: number | null;
+  methodology?: string;
+  rankingEligible?: boolean;
+  rankingReason?: string;
+  measurementCoverage?: number;
+  aiStatus?: string;
   grade: string;
   pillarScores: PillarScore[];
   pageSpeed: PageSpeedMetrics;
@@ -85,6 +121,10 @@ export interface AuditReport {
   groundingSources: GroundingSource[];
   cloudSynced: boolean;
   cloudSyncError?: string;
+  checklistVersion?: string;
+  checklistSummary?: ChecklistSummary;
+  storage?: { status: 'saved' | 'failed' | 'disabled'; backend?: 'sqlite'; message?: string };
+
 }
 
 export interface WebsiteRanking {

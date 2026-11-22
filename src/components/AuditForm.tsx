@@ -13,7 +13,7 @@ import { AUDIT_STANDARDS, QUICK_TEST_DOMAINS } from '../data/standards';
 import type { AuditCategory, AuditStrategy } from '../types/audit';
 import { HoverTip } from './HoverTip';
 
-export type AuditStepId = 'idle' | 'pagespeed' | 'gemini' | 'scoring' | 'sync';
+export type AuditStepId = 'idle' | 'pagespeed' | 'probe' | 'scoring' | 'sync';
 
 interface AuditFormProps {
   url: string;
@@ -32,22 +32,22 @@ const PIPELINE_STEPS: Array<{ id: AuditStepId; label: string; detail: string }> 
   {
     id: 'pagespeed',
     label: '1. Mengukur Kecepatan',
-    detail: 'Mengecek seberapa cepat halaman terbuka dan kestabilan koneksi website.',
+    detail: 'Server mengukur empat kategori Lighthouse. Proses dapat memerlukan beberapa menit.',
   },
   {
-    id: 'gemini',
-    label: '2. Menelusuri Informasi',
-    detail: 'Memeriksa kelengkapan menu, dokumen publik, serta layanan utama di pencarian.',
+    id: 'probe',
+    label: '2. Probe Teknis Beranda',
+    detail: 'Server memeriksa HTTP, viewport dan header; konten tetap perlu verifikasi manual.',
   },
   {
     id: 'scoring',
     label: '3. Menghitung Nilai',
-    detail: 'Menggabungkan seluruh hasil pemeriksaan menjadi skor akhir dan saran perbaikan.',
+    detail: 'Rata-rata empat skor Lighthouse, masing-masing berbobot 25% dari hasil pengukuran langsung.',
   },
   {
     id: 'sync',
-    label: '4. Memperbarui Peringkat',
-    detail: 'Menyimpan hasil penilaian terbaru ke daftar peringkat bersama.',
+    label: '4. Menyimpan Laporan',
+    detail: 'Laporan dan bukti checklist disimpan server bila database aktif; ranking online terpisah dan hanya untuk hasil yang memenuhi syarat.',
   },
 ];
 
@@ -83,13 +83,13 @@ export function AuditForm({
         >
           <HoverTip
             placement="bottom"
-            description="Pemeriksaan otomatis untuk melihat seberapa cepat, aman, ramah pengguna, dan lengkap informasi yang tersedia pada sebuah website."
+            description="Masukkan alamat publik, periksa skor dan checklist otomatis tanpa AI, lalu simpan PDF. Deskripsi tersedia saat disorot, difokuskan atau diketuk."
           >
-            Cek Kualitas &amp; Kepatuhan Website
+            Periksa kualitas website
           </HoverTip>
         </h1>
         <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-          Sorot judul bagian apa saja untuk membaca keterangan singkatnya.
+          Satu halaman publik · bukan audit kepatuhan resmi
         </p>
       </div>
 
@@ -116,8 +116,23 @@ export function AuditForm({
                 type="button"
                 role="radio"
                 aria-checked={isSelected}
+                tabIndex={isSelected ? 0 : -1}
+                aria-description={`${std.description} ${std.regulationRef}`}
                 disabled={isAuditing}
                 onClick={() => onCategoryChange(modeKey)}
+                onKeyDown={event => {
+                  const modes: AuditCategory[] = ['peradilan_agama', 'umum'];
+                  const index = modes.indexOf(modeKey);
+                  let next: number;
+                  if (['ArrowRight', 'ArrowDown'].includes(event.key)) next = (index + 1) % modes.length;
+                  else if (['ArrowLeft', 'ArrowUp'].includes(event.key)) next = (index + modes.length - 1) % modes.length;
+                  else if (event.key === 'Home') next = 0;
+                  else if (event.key === 'End') next = modes.length - 1;
+                  else return;
+                  event.preventDefault();
+                  onCategoryChange(modes[next]);
+                  event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="radio"]')[next]?.focus();
+                }}
                 className={`flex items-center justify-between gap-4 rounded-lg border px-4 py-3.5 text-left transition-colors ${
                   isSelected
                     ? 'border-sky-700 bg-sky-50/70 dark:border-sky-400 dark:bg-sky-950/40'
@@ -135,13 +150,11 @@ export function AuditForm({
                   />
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-slate-900 dark:text-white">
-                      <HoverTip description={std.description}>
+                      <HoverTip passive description={`${std.description} ${std.regulationRef}`}>
                         {std.title}
                       </HoverTip>
                     </div>
-                    <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">
-                      {std.regulationRef}
-                    </p>
+
                   </div>
                 </div>
 
